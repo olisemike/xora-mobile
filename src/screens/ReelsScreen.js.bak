@@ -1,0 +1,520 @@
+import React, { useRef, useState, useCallback, useEffect, memo, useMemo } from 'react';
+import { View, Text, StyleSheet, Dimensions, FlatList, TouchableOpacity, Alert } from 'react-native';
+import { Video } from 'expo-av';
+import { Ionicons } from '@expo/vector-icons';
+import { useNavigation, useIsFocused, useRoute } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+import { useSettings } from '../contexts/SettingsContext';
+import { useAppData } from '../contexts/AppDataContext';
+import { useAuth } from '../contexts/AuthContext';
+import { useTheme } from '../contexts/ThemeContext';
+import { useAdContext } from '../contexts/AdContext';
+import api from '../services/api';
+import AdReel from '../components/AdReel';
+import { formatAdData } from '../utils/adIntegration';
+
+const { height } = Dimensions.get('window');
+
+const formatCount = (n) => {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1).replace(/\.0$/, '')}K`;
+  return String(n);
+};
+
+// OPTIMIZED REEL ITEM with memo and proper comparator
+const ReelItem = memo(({ reel, isActive, onNext, onPrev }) => {
+  const videoRef = useRef(null);
+  const navigation = useNavigation();
+  const insets = useSafeAreaInsets();
+  const { settings } = useSettings();
+  const { sharePost, followingUsers, toggleFollowUser } = useAppData();
+  const { token } = useAuth();
+  const { colors } = useTheme();
+
+  const [muted, setMuted] = useState(false);
+  const [paused, setPaused] = useState(settings.reduceMotion || !settings.autoplayWifi);
+  const [liked, setLiked] = useState(reel.likedByMe || false);
+  const [liking, setLiking] = useState(false);
+  const [likeCount, setLikeCount] = useState(reel.likes || 0);
+
+  const postId = reel.postId;
+  const userModel = reel.user;
+  const isFollowing = userModel && followingUsers instanceof Set && followingUsers.has(userModel.id);
+
+  // Track view when reel becomes active
+  const viewTrackedRef = useRef(false);
+  useEffect(() => {
+    if (isActive && !viewTrackedRef.current && token && reel.id) {
+      viewTrackedRef.current = true;
+      api.viewReel(token, reel.id).catch(() => {});
+    }
+  }, [isActive, token, reel.id]);
+
+  // Control video playback
+  useEffect(() => {
+    if (!videoRef.current) return;
+    if (!isActive || paused) {
+      videoRef.current.pauseAsync().catch(() => {});
+    } else {
+      videoRef.current.playAsync().catch(() => {});
+    }
+  }, [isActive, paused]);
+
+  const handleLikePress = useCallback(async () => {
+    if (!token || liking) return;
+    setLiking(true);
+    const wasLiked = liked;
+    setLiked(!wasLiked);
+    setLikeCount(c => wasLiked ? Math.max(0, c - 1) : c + 1);
+
+    try {
+      if (wasLiked) {
+        await api.unlikePost(token, postId);
+      } else {
+        await api.likePost(token, postId, 'post', userModel.id);
+      }
+    } catch (e) {
+      setLiked(wasLiked);
+      setLikeCount(c => wasLiked ? c + 1 : Math.max(0, c - 1));
+      if (__DEV__) console.error('Like error:', e);
+    } finally {
+      setLiking(false);
+    }
+  }, [token, liked, liking, postId, userModel.id]);
+
+  const handleFollowToggle = useCallback(() => {
+    if (!userModel) {
+      Alert.alert('Profile unavailable', 'User profile not available');
+      return;
+    }
+    toggleFollowUser(userModel.id);
+  }, [userModel, toggleFollowUser]);
+
+  if (!reel.url) {
+    return (
+      <View style={styles.reelContainer}>
+        <View style={[styles.videoTouchable, { backgroundColor: '#000', justifyContent: 'center', alignItems: 'center' }]}>
+          <Ionicons name="alert-circle" size={40} color="#999" />
+          <Text style={{ color: '#999', marginTop: 8 }}>Video unavailable</Text>
+        </View>
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.reelContainer}>
+      <TouchableOpacity
+        activeOpacity={0.9}
+        style={styles.videoTouchable}
+        onPress={() => setPaused(p => !p)}
+      >
+        <Video
+          ref={videoRef}
+          isLooping
+          isMuted={muted}
+          resizeMode="contain"
+          shouldPlay={!paused && isActive}
+          source={{ uri: reel.url }}
+          posterResizeMode="cover"
+          posterUrl={reel.thumbnail}
+          style={styles.video}
+          progressUpdateIntervalMillis={1000}
+          onError={(e) => {
+            if (__DEV__) console.error('Video error:', e, 'URL:', reel.url);
+          }}
+        />
+
+        {/* Bottom overlay - user info and buttons */}
+        {!paused && (
+          <View style={[styles.overlayBottom, { bottom: 60 + insets.bottom }]}>
+            <View style={styles.userRow}>
+              <Text style={[styles.userName, { color: colors.onPrimary || '#fff' }]}>
+                {userModel.name}
+              </Text>
+              <Text style={[styles.username, { color: `${colors.onPrimary || '#fff'}CC` }]}>
+                @{userModel.username}
+              </Text>
+            </View>
+
+            {settings.captionsForVideos && reel.caption && (
+              <Text style={[styles.caption, { color: colors.onPrimary || '#fff' }]}>
+                {reel.caption}
+              </Text>
+            )}
+
+            <View style={styles.bottomButtonsRow}>
+              <TouchableOpacity
+                style={[styles.followBtn, isFollowing && styles.followBtnActive]}
+                onPress={handleFollowToggle}
+              >
+                <Text style={styles.followBtnText}>
+                  {isFollowing ? 'Following' : 'Follow'}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => navigation.navigate('UserProfile', { user: userModel })}
+              >
+                <Ionicons color={colors.onPrimary || '#fff'} name="person-circle-outline" size={26} />
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
+
+        {/* Right side action buttons */}
+        <View style={[styles.actionsColumn, { bottom: 60 + insets.bottom, right: 12 }]}>
+          <TouchableOpacity
+            style={[styles.actionBtn, liked && { backgroundColor: 'rgba(255,0,0,0.3)' }]}
+            onPress={handleLikePress}
+            disabled={liking}
+          >
+            <Ionicons
+              color={liked ? '#ff4458' : (colors.onPrimary || '#fff')}
+              name={liked ? 'heart' : 'heart-outline'}
+              size={26}
+            />
+            <Text style={[styles.actionText, { color: colors.onPrimary || '#fff' }]}>
+              {formatCount(likeCount)}
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.actionBtn}
+            onPress={() => navigation.navigate('PostDetail', { postId })}
+          >
+            <Ionicons color={colors.onPrimary || '#fff'} name="chatbubble-outline" size={26} />
+            <Text style={[styles.actionText, { color: colors.onPrimary || '#fff' }]}>
+              {formatCount(reel.comments || 0)}
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.actionBtn}
+            onPress={() => sharePost && sharePost({ id: postId, content: reel.caption })}
+          >
+            <Ionicons color={colors.onPrimary || '#fff'} name="share-outline" size={26} />
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.actionBtn}
+            onPress={() => setMuted(m => !m)}
+          >
+            <Ionicons
+              color={colors.onPrimary || '#fff'}
+              name={muted ? 'volume-mute-outline' : 'volume-high-outline'}
+              size={24}
+            />
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.actionBtn} onPress={onPrev}>
+            <Ionicons color={colors.onPrimary || '#fff'} name="chevron-up" size={20} />
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.actionBtn} onPress={onNext}>
+            <Ionicons color={colors.onPrimary || '#fff'} name="chevron-down" size={20} />
+          </TouchableOpacity>
+        </View>
+
+        {/* Play overlay */}
+        {paused && (
+          <View style={styles.playOverlay}>
+            <Ionicons color={colors.onPrimary || '#fff'} name="play" size={40} />
+          </View>
+        )}
+      </TouchableOpacity>
+    </View>
+  );
+}, (prevProps, nextProps) => {
+  // Only re-render if isActive or reel.id changes
+  return prevProps.isActive === nextProps.isActive && prevProps.reel.id === nextProps.reel.id;
+});
+
+ReelItem.displayName = 'ReelItem';
+
+export default function ReelsScreen() {
+  const flatListRef = useRef(null);
+  const route = useRoute();
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [currentReelId, setCurrentReelId] = useState(null);
+  const [reelsWithAds, setReelsWithAds] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [hasPlayedNsfw, setHasPlayedNsfw] = useState(false);
+  const [forceNonSensitive, setForceNonSensitive] = useState(false);
+
+  const isFocused = useIsFocused();
+  const { token } = useAuth();
+  const { fetchAdForPosition } = useAdContext();
+  const startPostId = route.params?.postId;
+
+  // Fetch and process reels
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadReels = async () => {
+      try {
+        if (!token) {
+          setReelsWithAds([]);
+          setLoading(false);
+          return;
+        }
+
+        const feed = await api.getReelsFeed(token, forceNonSensitive);
+        if (cancelled) return;
+
+        if (Array.isArray(feed) && feed.length > 0) {
+          // API already transforms reels, use them directly
+          const transformedReels = feed;
+
+          // Load with ads
+          await loadReelsWithAds(transformedReels);
+
+          // Set starting index if provided
+          if (startPostId) {
+            const startIdx = transformedReels.findIndex(r => r.id === startPostId || r.postId === startPostId);
+            if (startIdx !== -1) {
+              setCurrentIndex(startIdx);
+              setCurrentReelId(transformedReels[startIdx].id);
+            }
+          } else if (transformedReels.length > 0) {
+            setCurrentReelId(transformedReels[0].id);
+          }
+        } else {
+          setReelsWithAds([]);
+        }
+      } catch (e) {
+        if (__DEV__) {
+          console.error('Reels load error:', e.message);
+          console.error('Token:', token ? 'present' : 'missing');
+        }
+        if (!cancelled) {
+          setReelsWithAds([]);
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    };
+
+    const loadReelsWithAds = async (reelsList) => {
+      try {
+        const isSensitive = (reel) => reel.is_sensitive === true || reel.is_sensitive === 1;
+        const nonSensitiveReels = reelsList.filter(r => !isSensitive(r));
+        const adCount = Math.floor(nonSensitiveReels.length / 3);
+
+        const adPromises = Array(adCount).fill(null).map(() => fetchAdForPosition('reel'));
+        const ads = await Promise.all(adPromises);
+        const adReels = ads
+          .filter(ad => ad)
+          .map(ad => ({
+            ...formatAdData(ad),
+            isAd: true,
+            id: `ad-${ad.id}`,
+          }));
+
+        // Merge reels with ads
+        const result = [];
+        let adIndex = 0;
+        let nonSensitiveCount = 0;
+
+        for (let i = 0; i < reelsList.length; i++) {
+          result.push(reelsList[i]);
+          if (!isSensitive(reelsList[i])) {
+            nonSensitiveCount++;
+            if (nonSensitiveCount % 3 === 0 && adIndex < adReels.length) {
+              result.push(adReels[adIndex++]);
+            }
+          }
+        }
+
+        setReelsWithAds(result);
+      } catch (err) {
+        if (__DEV__) console.error('Ad loading error:', err);
+        setReelsWithAds(reelsList);
+      }
+    };
+
+    loadReels();
+    return () => {
+      cancelled = true;
+    };
+  }, [token, fetchAdForPosition, startPostId, forceNonSensitive]);
+
+  // Handle NSFW mode switching
+  useEffect(() => {
+    if (reelsWithAds.length === 0) return;
+    const currentReel = reelsWithAds[currentIndex];
+    if (currentReel && !currentReel.isAd && (currentReel.is_sensitive === 1 || currentReel.is_sensitive === true)) {
+      setHasPlayedNsfw(true);
+    } else if (hasPlayedNsfw && currentReel && !currentReel.isAd && (currentReel.is_sensitive !== 1 && currentReel.is_sensitive !== true)) {
+      setForceNonSensitive(true);
+    }
+  }, [currentIndex, reelsWithAds, hasPlayedNsfw]);
+
+  const onViewableItemsChanged = useCallback(({ viewableItems }) => {
+    if (viewableItems && viewableItems.length > 0) {
+      const firstViewable = viewableItems[0];
+      setCurrentIndex(firstViewable.index ?? 0);
+      if (firstViewable.item && !firstViewable.item.isAd) {
+        setCurrentReelId(firstViewable.item.id);
+      }
+    }
+  }, []);
+
+  const viewabilityConfig = useMemo(() => ({
+    itemVisiblePercentThreshold: 80,
+  }), []);
+
+  const goToIndex = useCallback((index) => {
+    if (!flatListRef.current || index < 0 || index >= reelsWithAds.length) return;
+    flatListRef.current.scrollToIndex({ index, animated: true });
+  }, [reelsWithAds.length]);
+
+  const handleNext = useCallback(() => goToIndex(currentIndex + 1), [currentIndex, goToIndex]);
+  const handlePrev = useCallback(() => goToIndex(currentIndex - 1), [currentIndex, goToIndex]);
+
+  const keyExtractor = useCallback((item) => `${item.id}-${item.isAd ? 'ad' : 'reel'}`, []);
+
+  const renderItem = useCallback(({ item }) => {
+    if (item.isAd) {
+      return <AdReel adData={item} onNext={handleNext} onSkip={handleNext} />;
+    }
+    const isActive = isFocused && item.id === currentReelId;
+    return (
+      <ReelItem
+        isActive={isActive}
+        reel={item}
+        onNext={handleNext}
+        onPrev={handlePrev}
+      />
+    );
+  }, [isFocused, currentReelId, handleNext, handlePrev]);
+
+  if (loading && reelsWithAds.length === 0) {
+    return (
+      <View style={styles.container}>
+        <Text style={{ textAlign: 'center', marginTop: 40 }}>Loading reels...</Text>
+      </View>
+    );
+  }
+
+  if (reelsWithAds.length === 0) {
+    return (
+      <View style={styles.container}>
+        <Text style={{ textAlign: 'center', marginTop: 40 }}>No reels available</Text>
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.container}>
+      <FlatList
+        ref={flatListRef}
+        pagingEnabled
+        scrollEventThrottle={16}
+        decelerationRate="fast"
+        data={reelsWithAds}
+        keyExtractor={keyExtractor}
+        renderItem={renderItem}
+        showsVerticalScrollIndicator={false}
+        removeClippedSubviews
+        maxToRenderPerBatch={3}
+        updateCellsBatchingPeriod={50}
+        initialNumToRender={2}
+        viewabilityConfig={viewabilityConfig}
+        onViewableItemsChanged={onViewableItemsChanged}
+        getItemLayout={(data, index) => ({
+          length: height,
+          offset: height * index,
+          index,
+        })}
+      />
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#000',
+  },
+  reelContainer: {
+    height,
+    width: '100%',
+    backgroundColor: '#000',
+  },
+  videoTouchable: {
+    flex: 1,
+  },
+  video: {
+    flex: 1,
+    backgroundColor: '#000',
+  },
+  overlayBottom: {
+    position: 'absolute',
+    left: 12,
+    right: 80,
+  },
+  userRow: {
+    marginBottom: 6,
+  },
+  userName: {
+    fontWeight: '600',
+    fontSize: 16,
+    color: '#fff',
+  },
+  username: {
+    fontSize: 13,
+    color: '#ccc',
+  },
+  caption: {
+    fontSize: 14,
+    marginVertical: 4,
+    color: '#fff',
+  },
+  bottomButtonsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 10,
+    gap: 12,
+  },
+  followBtn: {
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+  },
+  followBtnActive: {
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    borderWidth: 1,
+    borderColor: '#fff',
+  },
+  followBtnText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#fff',
+  },
+  actionsColumn: {
+    position: 'absolute',
+    alignItems: 'center',
+    gap: 16,
+  },
+  actionBtn: {
+    alignItems: 'center',
+    paddingVertical: 4,
+  },
+  actionText: {
+    fontSize: 12,
+    marginTop: 4,
+    color: '#fff',
+  },
+  playOverlay: {
+    position: 'absolute',
+    top: '50%',
+    left: '50%',
+    marginTop: -20,
+    marginLeft: -20,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+});

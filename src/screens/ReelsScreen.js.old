@@ -1,0 +1,607 @@
+import React, { useRef, useState, useCallback, useEffect, memo } from 'react';
+import { View, Text, StyleSheet, Dimensions, FlatList, TouchableOpacity, Alert } from 'react-native';
+import { Video } from 'expo-av';
+import { Ionicons } from '@expo/vector-icons';
+import { useNavigation, useIsFocused, useRoute } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+import { useSettings } from '../contexts/SettingsContext';
+import { useAppData } from '../contexts/AppDataContext';
+import { useAuth } from '../contexts/AuthContext';
+import { useTheme } from '../contexts/ThemeContext';
+import { useAdContext } from '../contexts/AdContext';
+import api from '../services/api';
+import AdReel from '../components/AdReel';
+import { formatAdData } from '../utils/adIntegration';
+
+const { height } = Dimensions.get('window');
+
+// Transform backend reel data to frontend format
+const transformReel = (backendReel) => {
+  const videoUrl = backendReel.video_url;
+  const thumbnailUrl = backendReel.thumbnail_url;
+  
+  return {
+    id: backendReel.id,
+    postId: backendReel.post_id || backendReel.id,
+    url: videoUrl, // Frontend expects 'url'
+    thumbnail: thumbnailUrl,
+    caption: backendReel.caption || '',
+    liked_by_me: backendReel.liked_by_me > 0 ? 1 : 0,
+    likedByMe: backendReel.liked_by_me > 0,
+    likes: backendReel.likes_count || 0,
+    comments: backendReel.comments_count || 0,
+    shares: backendReel.shares_count || 0,
+    is_sensitive: backendReel.is_sensitive,
+    language: backendReel.language,
+    created_at: backendReel.created_at,
+    user: {
+      id: backendReel.actor_id,
+      username: backendReel.username || 'user',
+      name: backendReel.actor_name || 'User',
+      avatar: backendReel.avatar_url,
+      verified: backendReel.verified || 0,
+      type: backendReel.actor_type,
+    }
+  };
+};
+
+const formatCount = (n) => {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1).replace(/\.0$/, '')}K`;
+  return String(n);
+};
+
+const ReelItem = ({ reel, isActive, onNext, onPrev }) => {
+  const videoRef = useRef(null);
+  const navigation = useNavigation();
+  const insets = useSafeAreaInsets();
+  const { settings } = useSettings();
+  const { sharePost, users, followingUsers, toggleFollowUser } = useAppData();
+  const { token, user } = useAuth();
+
+  const largeText = settings.textSizeLarge;
+  const { boldText } = settings;
+  const { reduceMotion } = settings;
+  const { captionsForVideos } = settings;
+  const { autoplayWifi } = settings;
+  const { mediaAutoplayMobile } = settings;
+  // For now, assume WiFi connection. In production, use NetInfo to detect connection type
+  const isWifi = true;
+  const shouldAutoplay = isWifi ? autoplayWifi : mediaAutoplayMobile;
+
+  const [muted, setMuted] = useState(false);
+  const [paused, setPaused] = useState(reduceMotion || !shouldAutoplay);
+  const [liked, setLiked] = useState(reel.liked_by_me > 0 || reel.likedByMe || false);
+  const [liking, setLiking] = useState(false);
+  const [likeCount, setLikeCount] = useState(reel.likes);
+  const { colors } = useTheme();
+
+  // Reels are now video posts - postId is the post's id for comments
+  const postId = reel.postId || reel.id;
+  const userModel = (users || []).find((u) => u.username === reel.user.username) ||
+    (reel.user?.id ? { id: reel.user.id, username: reel.user.username, name: reel.user.name } : null);
+  const isFollowing =
+    Boolean(userModel) && followingUsers instanceof Set && followingUsers.has(userModel.id);
+
+  const handleFollowToggle = () => {
+    if (!userModel) {
+      Alert.alert('Profile unavailable', 'This user profile is not available in this demo.');
+      return;
+    }
+    toggleFollowUser(userModel.id);
+  };
+
+  const identity =
+    user || { id: 'me', name: 'You', username: 'you', avatar: null, type: 'user' };
+
+  // Track view when reel becomes active
+  const viewTrackedRef = useRef(false);
+  useEffect(() => {
+    if (isActive && !viewTrackedRef.current && token && reel.id) {
+      viewTrackedRef.current = true;
+      api.viewReel(token, reel.id).catch(() => {
+        // Silently fail view tracking
+      });
+    }
+  }, [isActive, token, reel.id]);
+
+  useEffect(() => {
+    if (!videoRef.current) return;
+    if (!isActive || paused) {
+      videoRef.current.pauseAsync().catch(() => {});
+    } else {
+      videoRef.current.playAsync().catch(() => {});
+    }
+  }, [isActive, paused]);
+
+  return (
+    <View style={styles.reelContainer}>
+      <TouchableOpacity
+        activeOpacity={0.9}
+        style={styles.videoTouchable}
+        onPress={() => setPaused((p) => !p)}
+      >
+        {reel.url ? (
+          <Video
+            ref={videoRef}
+            isLooping
+            isMuted={muted}
+            resizeMode="contain"
+            shouldPlay={!paused ? isActive : null}
+            source={{ uri: reel.url }}
+            posterResizeMode="cover"
+            posterUrl={reel.thumbnail}
+            style={styles.video}
+          />
+        ) : (
+          <View style={[styles.video, { backgroundColor: '#000', justifyContent: 'center', alignItems: 'center' }]}>
+            <Ionicons name="alert-circle" size={40} color="#999" />
+            <Text style={{ color: '#999', marginTop: 8 }}>Video unavailable</Text>
+          </View>
+        )}
+        {!paused ? (
+          <View style={[styles.overlayBottom, { bottom: 60 + insets.bottom }]}>
+            <View style={styles.userRow}>
+              <Text style={[styles.userName, largeText && styles.userNameLarge, boldText && styles.userNameBold, { color: colors.onPrimary || '#fff' }]}>
+                {reel.user?.name || 'User'}
+              </Text>
+              <Text style={[styles.username, largeText && styles.usernameLarge, { color: `${colors.onPrimary || '#fff'}CC` }]}>
+                @{reel.user?.username || 'user'}
+              </Text>
+            </View>
+            {captionsForVideos ? (
+              <Text
+                style={[
+                  styles.caption,
+                  largeText && styles.captionLarge,
+                  boldText && styles.captionBold,
+                  { color: colors.onPrimary || '#fff' },
+                ]}
+              >
+                {reel.caption || ''}
+              </Text>
+            ) : null}
+
+            <View style={styles.bottomButtonsRow}>
+              <TouchableOpacity
+                style={[styles.followBtn, isFollowing && styles.followBtnActive]}
+                onPress={handleFollowToggle}
+              >
+                <Text style={styles.followBtnText}>
+                  {isFollowing ? 'Following' : 'Follow'}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => {
+                  if (userModel) {
+                    navigation.navigate('UserProfile', { user: userModel });
+                  }
+                }}
+              >
+                <Text style={styles.viewProfileText}>View profile</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        ) : null}
+        <View style={[styles.actionsColumn, { bottom: 60 + insets.bottom }]}>
+          <TouchableOpacity style={styles.actionBtn}>
+            <Ionicons color={colors.onPrimary || '#fff'} name="eye-outline" size={24} />
+            <Text style={[styles.actionText, largeText && styles.actionTextLarge, { color: colors.onPrimary || '#fff' }]}>
+              {formatCount(reel.views)}
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            disabled={liking}
+            style={styles.actionBtn}
+            onPress={async () => {
+              if (!token || liking) return;
+              const wasLiked = liked;
+              const actorType = 'user';
+              const actorId = user?.id;
+
+              // Optimistic update
+              setLiked(!wasLiked);
+              setLikeCount((count) => (wasLiked ? Math.max(0, count - 1) : count + 1));
+              setLiking(true);
+
+              try {
+                if (wasLiked) {
+                  await api.unlikeReel(token, reel.id, { actorType, actorId });
+                } else {
+                  await api.likeReel(token, reel.id, { actorType, actorId });
+                }
+              } catch (error) {
+                // Revert on error
+                setLiked(wasLiked);
+                setLikeCount((count) => (wasLiked ? count + 1 : Math.max(0, count - 1)));
+                if (__DEV__) console.error('Failed to update reel like:', error);
+              } finally {
+                setLiking(false);
+              }
+            }}
+          >
+            <Ionicons
+              color={liked ? colors.primary : (colors.onPrimary || '#fff')}
+              name={liked ? 'heart' : 'heart-outline'}
+              size={26}
+            />
+            <Text style={[styles.actionText, largeText && styles.actionTextLarge, { color: colors.onPrimary || '#fff' }]}>
+              {formatCount(likeCount)}
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.actionBtn}
+            onPress={() => {
+              // Navigate to post detail for comments - reels are video posts
+              if (postId) {
+                navigation.navigate('PostDetail', { postId });
+              }
+            }}
+          >
+            <Ionicons color={colors.onPrimary || '#fff'} name="chatbubble-outline" size={26} />
+            <Text style={[styles.actionText, largeText && styles.actionTextLarge, { color: colors.onPrimary || '#fff' }]}>
+              {formatCount(reel.comments)}
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.actionBtn}
+            onPress={() => {
+              // Share the video post
+              if (postId) {
+                sharePost({ id: postId, content: reel.caption }, {
+                  id: identity.id,
+                  name: identity.name,
+                  username: identity.username,
+                  avatar: identity.avatar,
+                  type: identity.type,
+                });
+              }
+            }}
+          >
+            <Ionicons color={colors.onPrimary || '#fff'} name="share-outline" size={26} />
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.actionBtn}
+            onPress={() => setMuted((m) => !m)}
+          >
+            <Ionicons
+              color={colors.onPrimary || '#fff'}
+              name={muted ? 'volume-mute-outline' : 'volume-high-outline'}
+              size={24}
+            />
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.actionBtn} onPress={onPrev}>
+            <Ionicons color={colors.onPrimary || '#fff'} name="chevron-up" size={20} />
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.actionBtn} onPress={onNext}>
+            <Ionicons color={colors.onPrimary || '#fff'} name="chevron-down" size={20} />
+          </TouchableOpacity>
+        </View>
+        {paused ? (
+          <View style={styles.playOverlay}>
+            <Ionicons color={colors.onPrimary || '#fff'} name="play" size={40} />
+          </View>
+        ) : null}
+      </TouchableOpacity>
+    </View>
+  );
+};
+
+export default function ReelsScreen() {
+  const flatListRef = useRef(null);
+  const route = useRoute();
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [currentReelId, setCurrentReelId] = useState(null);
+  const [_reels, setReels] = useState([]);
+  const [reelsWithAds, setReelsWithAds] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [hasPlayedNsfw, setHasPlayedNsfw] = useState(false);
+  const [forceNonSensitive, setForceNonSensitive] = useState(false);
+  const isFocused = useIsFocused();
+  const { token } = useAuth();
+  const { fetchAdForPosition } = useAdContext();
+
+  // Get postId from navigation params if provided
+  const startPostId = route.params?.postId;
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadReels = async () => {
+      try {
+        if (!token) {
+          setReels([]);
+          return;
+        }
+        const feed = await api.getReelsFeed(token, forceNonSensitive);
+        if (!cancelled && Array.isArray(feed) && feed.length > 0) {
+          setReels(feed);
+          // If startPostId provided, find and set current index
+          if (startPostId) {
+            const startIndex = feed.findIndex(r => r.id === startPostId || r.postId === startPostId);
+            if (startIndex !== -1) {
+              setCurrentIndex(startIndex);
+            }
+          }
+          // Load reels with ads
+          await loadReelsWithAds(feed);
+        }
+      } catch (e) {
+        if (__DEV__) {
+          console.error('Failed to load reels from backend:', e.message);
+          console.error('Error details:', e);
+          console.error('Token:', token ? 'present' : 'missing');
+        }
+        if (!cancelled) {
+          setReels([]);
+          setReelsWithAds([]);
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    };
+
+    const loadReelsWithAds = async (reelsList) => {
+      try {
+        // Helper to check if reel is sensitive
+        const isSensitive = (reel) => {
+          return reel.is_sensitive === true || reel.is_sensitive === 1;
+        };
+
+        // Calculate how many ads we need (every 3rd non-sensitive reel)
+        const nonSensitiveReels = reelsList.filter(reel => !isSensitive(reel));
+        const adCount = Math.floor(nonSensitiveReels.length / 3);
+
+        // Fetch ads for reels
+        const adPromises = Array(adCount).fill(null).map(() =>
+          fetchAdForPosition('reel'),
+        );
+
+        const ads = await Promise.all(adPromises);
+        const adReels = ads
+          .filter(ad => ad)
+          .map(ad => ({
+            ...formatAdData(ad),
+            isAd: true,
+            id: `ad-${ad.id}`,
+          }));
+
+        // Build reels array with ads inserted - avoid index drift by building new array
+        const result = [];
+        let adIndex = 0;
+        let nonSensitiveCount = 0;
+
+        for (let i = 0; i < reelsList.length; i++) {
+          result.push(reelsList[i]);
+
+          // Count non-sensitive reels and insert ad after every 3rd
+          if (!isSensitive(reelsList[i])) {
+            nonSensitiveCount++;
+            if (nonSensitiveCount % 3 === 0 && adIndex < adReels.length) {
+              result.push(adReels[adIndex]);
+              adIndex++;
+            }
+          }
+        }
+
+        setReelsWithAds(result);
+      } catch (err) {
+        if (__DEV__) console.error('Error loading reel ads:', err);
+        setReelsWithAds(reelsList);
+      }
+    };
+
+    loadReels();
+    return () => {
+      cancelled = true;
+    };
+  }, [token, fetchAdForPosition, startPostId, forceNonSensitive]);
+
+  // Handle NSFW reel behavior - switch to non-sensitive content after playing NSFW
+  useEffect(() => {
+    const currentReel = reelsWithAds[currentIndex];
+    if (currentReel && !currentReel.isAd && (currentReel.is_sensitive === 1 || currentReel.is_sensitive === true)) {
+      setHasPlayedNsfw(true);
+    } else if (hasPlayedNsfw && currentReel && !currentReel.isAd && (currentReel.is_sensitive !== 1 && currentReel.is_sensitive !== true)) {
+      // User has moved away from NSFW content, switch to non-sensitive feed
+      setForceNonSensitive(true);
+    }
+  }, [currentIndex, reelsWithAds, hasPlayedNsfw]);
+
+  const onViewableItemsChanged = useRef(({ viewableItems }) => {
+    if (viewableItems && viewableItems.length > 0) {
+      const firstViewable = viewableItems[0];
+      const index = firstViewable.index ?? 0;
+      setCurrentIndex(index);
+      // Track the active reel by ID instead of index (more reliable with ads)
+      if (firstViewable.item && !firstViewable.item.isAd) {
+        setCurrentReelId(firstViewable.item.id);
+      }
+    }
+  }).current;
+
+  const viewabilityConfig = { itemVisiblePercentThreshold: 80 };
+
+  const goToIndex = useCallback(
+    (index) => {
+      if (!flatListRef.current) return;
+      if (index < 0 || index >= reelsWithAds.length) return;
+      flatListRef.current.scrollToIndex({ index, animated: true });
+    },
+    [reelsWithAds.length],
+  );
+
+  const handleNext = useCallback(() => {
+    goToIndex(currentIndex + 1);
+  }, [currentIndex, goToIndex]);
+
+  const handlePrev = useCallback(() => {
+    goToIndex(currentIndex - 1);
+  }, [currentIndex, goToIndex]);
+
+  if (loading && reelsWithAds.length === 0) {
+    return (
+      <View style={styles.container}>
+        <Text style={{ textAlign: 'center', marginTop: 40 }}>
+          Loading reels...
+        </Text>
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.container}>
+      <FlatList
+        ref={flatListRef}
+        pagingEnabled
+        scrollEventThrottle={16}
+        decelerationRate="fast"
+        data={reelsWithAds}
+        keyExtractor={(item) => `${item.id}-${item.isAd ? 'ad' : 'reel'}`}
+        renderItem={({ item }) => {
+          // If this is an ad reel, render AdReel component
+          if (item.isAd) {
+            return (
+              <AdReel
+                adData={item}
+                onNext={handleNext}
+                onSkip={handleNext}
+              />
+            );
+          }
+
+          // Determine if this reel is active by ID instead of index (more reliable with ads)
+          const isActive = isFocused && item.id === currentReelId;
+
+          // Otherwise render normal reel
+          return (
+            <ReelItem
+              isActive={isActive}
+              reel={item}
+              onNext={handleNext}
+              onPrev={handlePrev}
+            />
+          );
+        }}
+        showsVerticalScrollIndicator={false}
+        viewabilityConfig={viewabilityConfig}
+        onViewableItemsChanged={onViewableItemsChanged}
+      />
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+  },
+  reelContainer: {
+    height,
+    width: '100%',
+
+  },
+  videoTouchable: {
+    flex: 1,
+  },
+  video: {
+    flex: 1,
+  },
+  overlayBottom: {
+    position: 'absolute',
+    left: 12,
+    bottom: 60,
+    right: 80,
+  },
+  userRow: {
+    marginBottom: 6,
+  },
+  userName: {
+
+    fontWeight: '600',
+    fontSize: 16,
+  },
+  userNameLarge: {
+    fontSize: 18,
+  },
+  userNameBold: {
+    fontWeight: '800',
+  },
+  username: {
+
+    fontSize: 13,
+  },
+  usernameLarge: {
+    fontSize: 15,
+  },
+  caption: {
+
+    fontSize: 14,
+  },
+  captionLarge: {
+    fontSize: 16,
+  },
+  captionBold: {
+    fontWeight: '600',
+  },
+  bottomButtonsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 10,
+    gap: 12,
+  },
+  followBtn: {
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 16,
+
+  },
+  followBtnActive: {
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    borderWidth: 1,
+
+  },
+  followBtnText: {
+
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  viewProfileText: {
+
+    fontSize: 13,
+    textDecorationLine: 'underline',
+  },
+  actionsColumn: {
+    position: 'absolute',
+    right: 10,
+    bottom: 60,
+    alignItems: 'center',
+    gap: 14,
+  },
+  actionBtn: {
+    alignItems: 'center',
+  },
+  actionText: {
+
+    fontSize: 13,
+    marginTop: 2,
+  },
+  actionTextLarge: {
+    fontSize: 15,
+  },
+  playOverlay: {
+    position: 'absolute',
+    top: '45%',
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+});

@@ -1,0 +1,34 @@
+{
+  "build": {
+    "preview": {
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      },
+      "ios": {
+        "resourceClass": "medium"
+      },
+      "env": {
+        "SENTRY_DISABLE_AUTO_UPLOAD": "true"
+      }
+    },
+    "production": {
+      "distribution": "store",
+      "android": {
+        "buildType": "app-bundle"
+      },
+      "ios": {
+        "resourceClass": "medium"
+      },
+      "env": {
+        "SENTRY_DISABLE_AUTO_UPLOAD": "true",
+        "EXPO_PUBLIC_API_URL": "https://xora-workers-api-production.xorasocial.workers.dev",
+        "EXPO_PUBLIC_CLOUDFLARE_IMAGES_HASH": "1eL4FEtJQavAd5JjFtJe7Q",
+        "EXPO_PUBLIC_CLOUDFLARE_STREAM_SUBDOMAIN": "customer-virwr1ukt49zj3yu.cloudflarestream.com",
+        "EXPO_PUBLIC_ENABLE_NOTIFICATIONS": "true",
+        "EXPO_PUBLIC_ENABLE_2FA": "true",
+        "EXPO_PUBLIC_ENABLE_DEVICE_VERIFICATION": "true"
+      }
+    }
+  }
+}

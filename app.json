@@ -1,0 +1,120 @@
+{
+  "expo": {
+    "name": "XoRa SoCiAl",
+    "slug": "xora-social",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "cover",
+      "backgroundColor": "#0F1419"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "scheme": "xora",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.xorasocial.app",
+      "associatedDomains": [
+        "applinks:xorasocial.com",
+        "applinks:www.xorasocial.com"
+      ],
+      "infoPlist": {
+        "NSCameraUsageDescription": "Xora Social needs access to your camera to take photos and videos.",
+        "NSPhotoLibraryUsageDescription": "Xora Social needs access to your photo library to upload media.",
+        "NSMicrophoneUsageDescription": "Xora Social needs access to your microphone to record videos."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#0F1419"
+      },
+      "package": "com.xorasocial.app",
+      "permissions": [
+        "CAMERA",
+        "RECORD_AUDIO",
+        "android.permission.READ_MEDIA_VISUAL_USER_SELECTED",
+        "android.permission.READ_MEDIA_IMAGES",
+        "android.permission.READ_MEDIA_VIDEO",
+        "android.permission.READ_MEDIA_AUDIO"
+      ],
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            {
+              "scheme": "https",
+              "host": "xorasocial.com",
+              "pathPrefix": "/post/"
+            },
+            {
+              "scheme": "https",
+              "host": "www.xorasocial.com",
+              "pathPrefix": "/post/"
+            },
+            {
+              "scheme": "https",
+              "host": "xorasocial.com",
+              "pathPrefix": "/tag/"
+            },
+            {
+              "scheme": "https",
+              "host": "www.xorasocial.com",
+              "pathPrefix": "/tag/"
+            },
+            {
+              "scheme": "https",
+              "host": "xorasocial.com",
+              "pathPrefix": "/u/"
+            },
+            {
+              "scheme": "https",
+              "host": "www.xorasocial.com",
+              "pathPrefix": "/u/"
+            }
+          ],
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
+        }
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow Xora Social to access your camera."
+        }
+      ],
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "Allow Xora Social to access your photos.",
+          "savePhotosPermission": "Allow Xora Social to save photos."
+        }
+      ],
+      [
+        "@sentry/react-native",
+        {
+          "organization": "xora-social",
+          "project": "xora-mobile"
+        }
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "899810d0-d8f8-4b9b-b887-caa020fd71fb"
+      }
+    },
+    "owner": "autosaas"
+  }
+}
