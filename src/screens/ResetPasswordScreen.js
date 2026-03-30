@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, Alert } from 'react-native';
+import { View, Text, StyleSheet, TextInput, TouchableOpacity, Alert, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
 import { useNetwork } from '../contexts/NetworkContext';
@@ -68,7 +68,7 @@ const ResetPasswordScreen = ({ navigation, route }) => {
   };
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.background }]}>
+    <KeyboardAvoidingView style={[styles.container, { backgroundColor: colors.background }]} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <View style={[styles.header, { backgroundColor: colors.surface, borderBottomColor: colors.border }]}>
         <TouchableOpacity onPress={() => navigation.goBack()}>
           <Ionicons color={colors.text} name="arrow-back" size={24} />
@@ -76,7 +76,7 @@ const ResetPasswordScreen = ({ navigation, route }) => {
         <Text style={[styles.headerTitle, { color: colors.text }]}>Reset password</Text>
         <View style={{ width: 24 }} />
       </View>
-      <View style={styles.content}>
+      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         {email ? <Text style={[styles.email, { color: colors.textSecondary }]}>{email}</Text> : null}
         <TextInput
           secureTextEntry
@@ -92,13 +92,13 @@ const ResetPasswordScreen = ({ navigation, route }) => {
           value={confirm}
           onChangeText={setConfirm}
         />
-        <TouchableOpacity disabled={loading} style={[styles.button, { backgroundColor: colors.surface }]} onPress={handleReset}>
-          <Text style={[styles.buttonText, { color: colors.primary }]}>
+        <TouchableOpacity disabled={loading} style={[styles.button, { backgroundColor: colors.primary }]} onPress={handleReset}>
+          <Text style={[styles.buttonText, { color: '#fff' }]}>
             {loading ? 'Saving...' : 'Save new password'}
           </Text>
         </TouchableOpacity>
-      </View>
-    </View>
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 };
 
@@ -114,7 +114,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
   },
   headerTitle: { fontSize: 20, fontWeight: 'bold' },
-  content: { padding: 16 },
+  content: { flexGrow: 1, padding: 16, paddingBottom: 32 },
   email: { fontSize: 14, marginBottom: 12 },
   input: {
     borderWidth: 1,
@@ -128,7 +128,8 @@ const styles = StyleSheet.create({
     borderRadius: 22,
     paddingVertical: 12,
     alignItems: 'center',
-    marginTop: 4,
+    marginTop: 8,
+    minHeight: 48,
   },
   buttonText: { fontSize: 15, fontWeight: '600' },
 });

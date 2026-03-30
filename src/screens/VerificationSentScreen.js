@@ -26,10 +26,10 @@ const VerificationSentScreen = ({ navigation, route }) => {
           In a real app, follow the link in that email to continue.
         </Text>
         <TouchableOpacity
-          style={[styles.button, { backgroundColor: colors.surface }]}
+          style={[styles.button, { backgroundColor: colors.primary }]}
           onPress={() => navigation.navigate('VerificationCode', { email })}
         >
-          <Text style={[styles.buttonText, { color: colors.primary }]}>Enter code manually</Text>
+          <Text style={[styles.buttonText, { color: '#fff' }]}>Enter code manually</Text>
         </TouchableOpacity>
         <TouchableOpacity style={styles.secondaryButton} onPress={() => navigation.navigate('Login')}>
           <Text style={[styles.secondaryButtonText, { color: colors.primary }]}>Back to login</Text>
@@ -60,6 +60,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     alignItems: 'center',
     marginTop: 8,
+    minHeight: 48,
   },
   buttonText: { fontSize: 15, fontWeight: '600' },
   secondaryButton: {

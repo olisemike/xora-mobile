@@ -139,10 +139,10 @@ const VerifyEmailScreen = ({ navigation, route }) => {
 
             <TouchableOpacity
               disabled={loading}
-              style={[styles.verifyButton, { backgroundColor: colors.surface }]}
+              style={[styles.verifyButton, { backgroundColor: colors.primary }]}
               onPress={handleVerify}
             >
-              <Text style={[styles.verifyButtonText, { color: colors.primary }]}>
+              <Text style={[styles.verifyButtonText, { color: '#fff' }]}>
                 {loading ? 'Verifying...' : 'Verify Email'}
               </Text>
             </TouchableOpacity>
@@ -212,6 +212,8 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     padding: 14,
     alignItems: 'center',
+    minHeight: 52,
+    justifyContent: 'center',
   },
   verifyButtonText: {
     fontSize: 18,

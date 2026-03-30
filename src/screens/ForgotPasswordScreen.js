@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, Alert } from 'react-native';
+import { View, Text, StyleSheet, TextInput, TouchableOpacity, Alert, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTranslation } from 'react-i18next';
 
@@ -43,7 +43,7 @@ const ForgotPasswordScreen = ({ navigation }) => {
   };
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.background }] }>
+    <KeyboardAvoidingView style={[styles.container, { backgroundColor: colors.background }] } behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <View style={[styles.header, { backgroundColor: colors.surface, borderBottomColor: colors.border }] }>
         <TouchableOpacity onPress={() => navigation.goBack()}>
           <Ionicons color={colors.text} name="arrow-back" size={24} />
@@ -51,7 +51,7 @@ const ForgotPasswordScreen = ({ navigation }) => {
         <Text style={[styles.headerTitle, { color: colors.text }]}>{t('auth.forgotPassword') || 'Forgot password'}</Text>
         <View style={{ width: 24 }} />
       </View>
-      <View style={styles.content}>
+      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         <Text style={[styles.info, { color: colors.textSecondary }]}>
           Enter the email associated with your account. In a real app we would send you a reset link
           or code.
@@ -64,13 +64,13 @@ const ForgotPasswordScreen = ({ navigation }) => {
           value={email}
           onChangeText={setEmail}
         />
-        <TouchableOpacity disabled={loading} style={[styles.button, { backgroundColor: colors.surface }]} onPress={handleSubmit}>
-          <Text style={[styles.buttonText, { color: colors.primary }]}>
+        <TouchableOpacity disabled={loading} style={[styles.button, { backgroundColor: colors.primary }]} onPress={handleSubmit}>
+          <Text style={[styles.buttonText, { color: '#fff' }]}>
             {loading ? t('common.loading') : 'Send reset code'}
           </Text>
         </TouchableOpacity>
-      </View>
-    </View>
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 };
 
@@ -86,7 +86,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
   },
   headerTitle: { fontSize: 20, fontWeight: 'bold' },
-  content: { padding: 16 },
+  content: { flexGrow: 1, padding: 16, paddingBottom: 32 },
   info: { fontSize: 14, marginBottom: 16 },
   input: {
     borderWidth: 1,
@@ -100,7 +100,8 @@ const styles = StyleSheet.create({
     borderRadius: 22,
     paddingVertical: 12,
     alignItems: 'center',
-    marginTop: 4,
+    marginTop: 8,
+    minHeight: 48,
   },
   buttonText: { fontSize: 15, fontWeight: '600' },
 });
